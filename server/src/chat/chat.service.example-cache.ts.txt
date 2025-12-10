@@ -1,0 +1,55 @@
+// Example: How to use CacheService in your services
+import { Injectable } from '@nestjs/common';
+import { CacheService } from '../common/cache/cache.service';
+import { Cacheable } from '../common/decorators/cache.decorator';
+
+@Injectable()
+export class ChatService {
+  constructor(private readonly cacheService: CacheService) {}
+
+  // Example 1: Using cache decorator
+  @Cacheable(3600, (userId: string) => `threads:user:${userId}`)
+  async getUserThreads(userId: string) {
+    // This will be cached for 1 hour
+    return this.threadRepo.find({ where: { userId } });
+  }
+
+  // Example 2: Manual caching
+  async getThread(threadId: string) {
+    const cacheKey = `thread:${threadId}`;
+    
+    // Try cache first
+    const cached = await this.cacheService.get(cacheKey);
+    if (cached) return cached;
+
+    // Fetch from database
+    const thread = await this.threadRepo.findOne({ where: { id: threadId } });
+    
+    // Cache for 30 minutes
+    await this.cacheService.set(cacheKey, thread, 1800);
+    
+    return thread;
+  }
+
+  // Example 3: Cache invalidation
+  async updateThread(threadId: string, data: any) {
+    await this.threadRepo.update(threadId, data);
+    
+    // Invalidate related caches
+    await this.cacheService.delete(`thread:${threadId}`);
+    await this.cacheService.invalidate(`threads:user:*`); // Invalidate all user thread caches
+  }
+
+  // Example 4: Get or set pattern
+  async getThreadStats(threadId: string) {
+    return this.cacheService.getOrSet(
+      `thread:stats:${threadId}`,
+      async () => {
+        // Expensive computation
+        return this.calculateStats(threadId);
+      },
+      3600 // Cache for 1 hour
+    );
+  }
+}
+

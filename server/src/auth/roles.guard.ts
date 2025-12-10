@@ -1,0 +1,32 @@
+
+import { Injectable, CanActivate, ExecutionContext, ForbiddenException } from '@nestjs/common';
+import { Reflector } from '@nestjs/core';
+import { ROLES_KEY } from './roles.decorator';
+
+@Injectable()
+export class RolesGuard implements CanActivate {
+  constructor(private reflector: Reflector) {}
+
+  canActivate(context: ExecutionContext): boolean {
+    const requiredRoles = this.reflector.getAllAndOverride<string[]>(ROLES_KEY, [
+      context.getHandler(),
+      context.getClass(),
+    ]);
+    if (!requiredRoles) {
+      return true;
+    }
+    const { user } = context.switchToHttp().getRequest();
+    
+    if (!user) return false;
+
+    // For demo simplicity, user.role is a single string. In real apps, might be an array.
+    // 'Admin' has access to everything.
+    if (user.role === 'Admin') return true;
+
+    if (!requiredRoles.includes(user.role)) {
+        throw new ForbiddenException('Insufficient permissions');
+    }
+    
+    return true;
+  }
+}

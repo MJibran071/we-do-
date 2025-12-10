@@ -1,0 +1,145 @@
+version: '3.8'
+
+services:
+  # Load Balancer
+  nginx:
+    image: nginx:alpine
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx.conf.scaling:/etc/nginx/nginx.conf:ro
+      - ./dist:/usr/share/nginx/html:ro
+    depends_on:
+      - backend
+    restart: always
+    networks:
+      - app-network
+
+  # Backend instances (scale these)
+  backend:
+    build:
+      context: ./server
+      dockerfile: Dockerfile
+    environment:
+      - NODE_ENV=production
+      - PORT=3000
+      - REDIS_URI=redis://redis:6379
+      - DATABASE_URL=postgres://user:password@postgres:5432/wedo
+      - JWT_SECRET=${JWT_SECRET}
+      - API_KEY=${API_KEY}
+      - ALLOWED_ORIGINS=*
+    depends_on:
+      - redis
+      - postgres
+    restart: always
+    networks:
+      - app-network
+    deploy:
+      replicas: 3  # Scale to 3 instances
+      resources:
+        limits:
+          cpus: '1'
+          memory: 1G
+        reservations:
+          cpus: '0.5'
+          memory: 512M
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  # Redis with persistence
+  redis:
+    image: redis:7-alpine
+    command: redis-server --appendonly yes --maxmemory 512mb --maxmemory-policy allkeys-lru
+    volumes:
+      - redis_data:/data
+    restart: always
+    networks:
+      - app-network
+    deploy:
+      resources:
+        limits:
+          memory: 1G
+
+  # PostgreSQL with optimized settings
+  postgres:
+    image: ankane/pgvector
+    environment:
+      POSTGRES_USER: user
+      POSTGRES_PASSWORD: password
+      POSTGRES_DB: wedo
+      # Performance tuning
+      POSTGRES_INITDB_ARGS: "-E UTF8 --locale=C"
+    volumes:
+      - pg_data:/var/lib/postgresql/data
+    restart: always
+    networks:
+      - app-network
+    command: >
+      postgres
+      -c shared_buffers=256MB
+      -c effective_cache_size=1GB
+      -c maintenance_work_mem=64MB
+      -c checkpoint_completion_target=0.9
+      -c wal_buffers=16MB
+      -c default_statistics_target=100
+      -c random_page_cost=1.1
+      -c effective_io_concurrency=200
+      -c work_mem=4MB
+      -c min_wal_size=1GB
+      -c max_wal_size=4GB
+    deploy:
+      resources:
+        limits:
+          memory: 2G
+
+  # Worker processes (separate from API)
+  email-worker:
+    build:
+      context: ./server
+      dockerfile: Dockerfile
+    command: npm run worker:email
+    environment:
+      - NODE_ENV=production
+      - REDIS_URI=redis://redis:6379
+      - DATABASE_URL=postgres://user:password@postgres:5432/wedo
+    depends_on:
+      - redis
+      - postgres
+    restart: always
+    networks:
+      - app-network
+    deploy:
+      replicas: 2
+      resources:
+        limits:
+          memory: 512M
+
+  # Monitoring (optional - Prometheus)
+  prometheus:
+    image: prom/prometheus:latest
+    volumes:
+      - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml
+      - prometheus_data:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+    ports:
+      - "9090:9090"
+    networks:
+      - app-network
+    restart: always
+
+networks:
+  app-network:
+    driver: bridge
+
+volumes:
+  redis_data:
+  pg_data:
+  prometheus_data:
+

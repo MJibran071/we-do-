@@ -1,0 +1,41 @@
+import { applyDecorators, Type } from '@nestjs/common';
+import { ApiExtraModels, ApiOkResponse, getSchemaPath } from '@nestjs/swagger';
+
+export class PaginatedDto<T> {
+  data: T[];
+  meta: {
+    total: number;
+    page: number;
+    limit: number;
+    totalPages: number;
+  };
+}
+
+export const ApiPaginatedResponse = <TModel extends Type<any>>(model: TModel) => {
+  return applyDecorators(
+    ApiExtraModels(model),
+    ApiOkResponse({
+      schema: {
+        allOf: [
+          {
+            properties: {
+              data: {
+                type: 'array',
+                items: { $ref: getSchemaPath(model) },
+              },
+              meta: {
+                type: 'object',
+                properties: {
+                  total: { type: 'number' },
+                  page: { type: 'number' },
+                  limit: { type: 'number' },
+                  totalPages: { type: 'number' },
+                },
+              },
+            },
+          },
+        ],
+      },
+    }),
+  );
+};

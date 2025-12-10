@@ -1,0 +1,7 @@
+{
+  "name": "We Do It For You v 1.2.1",
+  "description": "AI-powered unified messaging inbox. Auto-reply to Airbnb, WhatsApp, and Lodgify messages using Gemini.",
+  "requestFramePermissions": [
+    "microphone"
+  ]
+}
